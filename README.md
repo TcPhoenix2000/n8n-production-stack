@@ -139,4 +139,4 @@ MIT — see [LICENSE](LICENSE).
 
 ---
 
-Need this set up on your server, or an automation built on top of it? Open an issue or contact [@tibo00](https://github.com/tibo00).
+Need this set up on your server, or an automation built on top of it? Open an issue or contact [@TcPhoenix2000](https://github.com/TcPhoenix2000).
