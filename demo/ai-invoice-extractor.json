@@ -1,0 +1,233 @@
+{
+  "name": "AI invoice extractor (demo)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## AI invoice extractor\n\nUpload a PDF invoice (or email it) and AI reads it into structured data.\n\n**Flow:** PDF → text → AI extracts supplier, VAT number, dates, amounts, IBAN → checks (totals add up, Belgian VAT number and IBAN checksums) → saved to PostgreSQL → result shown on the form.\n\nAnything suspicious is flagged **needs_review** instead of being trusted blindly.",
+        "height": 300,
+        "width": 420,
+        "color": 4
+      },
+      "id": "a1f0c6a2-0001-4c11-9d01-000000000001",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-120, -260]
+    },
+    {
+      "parameters": {
+        "content": "### Setup\n1. Run `demo/invoices.sql` once (creates `demo.invoices`)\n2. Credentials: **Google Gemini** (free API key from aistudio.google.com) and **Postgres** (host `postgres`, db/user `n8n`, password from `.env`)\n3. Optional: enable **Email inbox** with an IMAP credential to process emailed invoices",
+        "height": 220,
+        "width": 420,
+        "color": 7
+      },
+      "id": "a1f0c6a2-0002-4c11-9d01-000000000002",
+      "name": "Setup notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-120, 340]
+    },
+    {
+      "parameters": {
+        "formTitle": "Invoice upload",
+        "formDescription": "Upload a PDF invoice. It will be read by AI, checked and saved.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Invoice PDF",
+              "fieldType": "file",
+              "multipleFiles": false,
+              "acceptFileTypes": ".pdf",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1f0c6a2-0003-4c11-9d01-000000000003",
+      "name": "Upload form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [360, 0],
+      "webhookId": "5b0c1d7e-3a2f-4f7c-9c11-7e5d2a9b0a01"
+    },
+    {
+      "parameters": {
+        "downloadAttachments": true,
+        "options": {
+          "customEmailConfig": "[\"UNSEEN\"]"
+        }
+      },
+      "id": "a1f0c6a2-0004-4c11-9d01-000000000004",
+      "name": "Email inbox",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [360, 200],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Accept a file from the form or an email attachment and expose it as binary 'invoice'.\nconst bin = $input.item.binary || {};\nconst keys = Object.keys(bin);\nconst key = keys.find(k => (bin[k].mimeType || '').includes('pdf') || (bin[k].fileName || '').toLowerCase().endsWith('.pdf')) || keys[0];\nif (!key) {\n  throw new Error('No PDF found in the upload or email');\n}\nconst from = $json.from;\nreturn {\n  json: {\n    source: from ? 'email' : 'form',\n    file_name: bin[key].fileName || 'invoice.pdf',\n    email_from: typeof from === 'string' ? from : (from?.text ?? null),\n    email_subject: $json.subject ?? null\n  },\n  binary: { invoice: bin[key] }\n};"
+      },
+      "id": "a1f0c6a2-0005-4c11-9d01-000000000005",
+      "name": "Normalize input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [580, 100]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "invoice",
+        "options": {}
+      },
+      "id": "a1f0c6a2-0006-4c11-9d01-000000000006",
+      "name": "PDF to text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [800, 100]
+    },
+    {
+      "parameters": {
+        "text": "={{ $json.text }}",
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"supplier_name\": { \"type\": \"string\", \"description\": \"Name of the company that issued the invoice\" },\n    \"supplier_vat\": { \"type\": \"string\", \"description\": \"Supplier VAT number, e.g. BE0123456789. Empty string if absent\" },\n    \"invoice_number\": { \"type\": \"string\" },\n    \"invoice_date\": { \"type\": \"string\", \"description\": \"Invoice date as YYYY-MM-DD\" },\n    \"due_date\": { \"type\": \"string\", \"description\": \"Payment due date as YYYY-MM-DD. Empty string if absent\" },\n    \"currency\": { \"type\": \"string\", \"description\": \"ISO 4217 code, e.g. EUR\" },\n    \"net_amount\": { \"type\": \"number\", \"description\": \"Total excluding VAT\" },\n    \"vat_amount\": { \"type\": \"number\", \"description\": \"Total VAT amount\" },\n    \"total_amount\": { \"type\": \"number\", \"description\": \"Total including VAT, the amount to pay\" },\n    \"iban\": { \"type\": \"string\", \"description\": \"Supplier bank account IBAN without spaces. Empty string if absent\" }\n  },\n  \"required\": [\"supplier_name\", \"invoice_number\", \"total_amount\"]\n}",
+        "options": {
+          "systemPromptTemplate": "You extract data from supplier invoices (often Belgian, in Dutch, French or English). Only return values that are printed on the invoice. Never guess or calculate missing values: use an empty string for missing text and omit missing numbers. Dates must be YYYY-MM-DD. Amounts are plain numbers with a dot as decimal separator."
+        }
+      },
+      "id": "a1f0c6a2-0007-4c11-9d01-000000000007",
+      "name": "AI extract fields",
+      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "typeVersion": 1.1,
+      "position": [1020, 100]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "a1f0c6a2-0008-4c11-9d01-000000000008",
+      "name": "Gemini",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [1020, 320]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Normalise the AI output and run deterministic checks. Output keys match demo.invoices columns.\nconst o = $json.output ?? {};\nconst src = $('Normalize input').item.json;\n\nconst num = v => {\n  if (v === null || v === undefined || v === '') return null;\n  if (typeof v === 'number') return Math.round(v * 100) / 100;\n  let s = String(v).replace(/[^\\d,.-]/g, '');\n  if (s.includes(',') && s.lastIndexOf(',') > s.lastIndexOf('.')) s = s.replace(/\\./g, '').replace(',', '.');\n  else s = s.replace(/,/g, '');\n  const n = parseFloat(s);\n  return Number.isNaN(n) ? null : Math.round(n * 100) / 100;\n};\nconst date = v => (/^\\d{4}-\\d{2}-\\d{2}$/.test(v || '') ? v : null);\nconst text = v => (v === undefined || v === null || String(v).trim() === '' ? null : String(v).trim());\n\n// Belgian VAT / enterprise number: 10 digits, last 2 = 97 - (first 8 mod 97)\nconst vat = (o.supplier_vat || '').toUpperCase().replace(/[^A-Z0-9]/g, '') || null;\nlet vat_valid = null;\nif (vat && vat.startsWith('BE')) {\n  let d = vat.slice(2);\n  if (d.length === 9) d = '0' + d;\n  vat_valid = /^[01]\\d{9}$/.test(d) && 97 - (parseInt(d.slice(0, 8), 10) % 97) === parseInt(d.slice(8), 10);\n}\n\n// IBAN mod-97 check\nconst iban = (o.iban || '').toUpperCase().replace(/[^A-Z0-9]/g, '') || null;\nconst ibanValid = s => {\n  if (!/^[A-Z]{2}\\d{2}[A-Z0-9]{8,30}$/.test(s)) return false;\n  const r = (s.slice(4) + s.slice(0, 4)).replace(/[A-Z]/g, c => String(c.charCodeAt(0) - 55));\n  let m = 0;\n  for (const ch of r) m = (m * 10 + Number(ch)) % 97;\n  return m === 1;\n};\n\nconst net = num(o.net_amount);\nconst tax = num(o.vat_amount);\nconst total = num(o.total_amount);\nconst invoice_date = date(o.invoice_date);\nconst due_date = date(o.due_date);\n\nconst reasons = [];\nif (!text(o.invoice_number)) reasons.push('missing invoice number');\nif (total === null) reasons.push('missing total');\nif (net !== null && tax !== null && total !== null && Math.abs(net + tax - total) > 0.02) reasons.push(`net + VAT (${(net + tax).toFixed(2)}) does not match total (${total.toFixed(2)})`);\nif (vat_valid === false) reasons.push('invalid Belgian VAT number');\nif (iban && !ibanValid(iban)) reasons.push('invalid IBAN');\nif (!invoice_date) reasons.push('missing or unreadable invoice date');\nif (invoice_date && due_date && due_date < invoice_date) reasons.push('due date before invoice date');\n\nreturn {\n  json: {\n    source: src.source,\n    file_name: src.file_name,\n    supplier_name: text(o.supplier_name),\n    supplier_vat: vat,\n    vat_valid,\n    invoice_number: text(o.invoice_number),\n    invoice_date,\n    due_date,\n    currency: (text(o.currency) || 'EUR').toUpperCase().slice(0, 3),\n    net_amount: net,\n    vat_amount: tax,\n    total_amount: total,\n    iban,\n    needs_review: reasons.length > 0,\n    review_reasons: reasons.length ? reasons.join('; ') : null,\n    raw: JSON.stringify(o)\n  }\n};"
+      },
+      "id": "a1f0c6a2-0009-4c11-9d01-000000000009",
+      "name": "Validate & enrich",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1240, 100]
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "name",
+          "value": "demo"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "invoices"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "a1f0c6a2-0010-4c11-9d01-000000000010",
+      "name": "Save to database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1460, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c0a1b2c3-0000-4000-8000-000000000001",
+              "leftValue": "={{ $('Normalize input').item.json.source }}",
+              "rightValue": "form",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1f0c6a2-0011-4c11-9d01-000000000011",
+      "name": "From the form?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1680, 100]
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "={{ $('Validate & enrich').item.json.needs_review ? 'Saved — needs review' : 'Invoice saved' }}",
+        "completionMessage": "={{ $('Validate & enrich').item.json.supplier_name }} · invoice {{ $('Validate & enrich').item.json.invoice_number }} · {{ $('Validate & enrich').item.json.currency }} {{ $('Validate & enrich').item.json.total_amount }}{{ $('Validate & enrich').item.json.needs_review ? ' — ' + $('Validate & enrich').item.json.review_reasons : ' — all checks passed' }}",
+        "options": {}
+      },
+      "id": "a1f0c6a2-0012-4c11-9d01-000000000012",
+      "name": "Show result",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [1900, 0]
+    }
+  ],
+  "connections": {
+    "Upload form": {
+      "main": [[{ "node": "Normalize input", "type": "main", "index": 0 }]]
+    },
+    "Email inbox": {
+      "main": [[{ "node": "Normalize input", "type": "main", "index": 0 }]]
+    },
+    "Normalize input": {
+      "main": [[{ "node": "PDF to text", "type": "main", "index": 0 }]]
+    },
+    "PDF to text": {
+      "main": [[{ "node": "AI extract fields", "type": "main", "index": 0 }]]
+    },
+    "Gemini": {
+      "ai_languageModel": [[{ "node": "AI extract fields", "type": "ai_languageModel", "index": 0 }]]
+    },
+    "AI extract fields": {
+      "main": [[{ "node": "Validate & enrich", "type": "main", "index": 0 }]]
+    },
+    "Validate & enrich": {
+      "main": [[{ "node": "Save to database", "type": "main", "index": 0 }]]
+    },
+    "Save to database": {
+      "main": [[{ "node": "From the form?", "type": "main", "index": 0 }]]
+    },
+    "From the form?": {
+      "main": [[{ "node": "Show result", "type": "main", "index": 0 }], []]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
