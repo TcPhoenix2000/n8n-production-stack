@@ -1,0 +1,67 @@
+{
+  "id": 5001001,
+  "name": "#1001",
+  "order_number": 1001,
+  "created_at": "2026-11-05T10:15:00+01:00",
+  "currency": "EUR",
+  "taxes_included": true,
+  "financial_status": "paid",
+  "email": "sofie@example.com",
+  "customer": {
+    "first_name": "Sofie",
+    "last_name": "Demo",
+    "email": "sofie@example.com"
+  },
+  "billing_address": {
+    "country_code": "BE",
+    "city": "Brugge"
+  },
+  "line_items": [
+    {
+      "id": 1,
+      "sku": "KK-BEANS-250",
+      "title": "Kustkoffie bonen 250 g",
+      "price": "12.50",
+      "quantity": 2,
+      "total_discount": "0.00",
+      "tax_lines": [
+        {
+          "title": "BTW",
+          "rate": 0.06,
+          "price": "1.42"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "sku": "KK-MUG",
+      "title": "Kustkoffie mok",
+      "price": "14.95",
+      "quantity": 1,
+      "total_discount": "0.00",
+      "tax_lines": [
+        {
+          "title": "BTW",
+          "rate": 0.21,
+          "price": "2.59"
+        }
+      ]
+    }
+  ],
+  "shipping_lines": [
+    {
+      "title": "bpost",
+      "price": "4.95",
+      "tax_lines": [
+        {
+          "title": "BTW",
+          "rate": 0.21,
+          "price": "0.86"
+        }
+      ]
+    }
+  ],
+  "total_price": "44.90",
+  "total_tax": "4.87",
+  "shop_domain": "kustkoffie-demo.myshopify.com"
+}

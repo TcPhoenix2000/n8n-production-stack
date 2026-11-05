@@ -129,9 +129,12 @@ n8n exposes a health endpoint at `https://<your-domain>/healthz`. Add it to any 
 
 ---
 
-## Demo: AI invoice extractor
+## Demos
 
-The [`demo/`](demo/) folder contains a ready-to-import n8n workflow that reads PDF invoices with AI, checks totals, Belgian VAT numbers and IBANs with code, and stores the result in PostgreSQL — flagging anything that doesn't add up.
+The [`demo/`](demo/) folder contains ready-to-import n8n workflows:
+
+- **[AI invoice extractor](demo/README.md)** — reads PDF invoices with AI, checks totals, Belgian VAT numbers and IBANs with code, and stores the result in PostgreSQL, flagging anything that doesn't add up.
+- **[Webshop orders → accounting](demo/webshop/README.md)** — Shopify orders and refunds become numbered invoices and credit notes with VAT per rate, stock updates, low-stock alerts and a daily sales summary.
 
 ## License
 

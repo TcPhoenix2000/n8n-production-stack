@@ -1,0 +1,55 @@
+{
+  "id": 5001002,
+  "name": "#1002",
+  "order_number": 1002,
+  "created_at": "2026-11-05T10:15:00+01:00",
+  "currency": "EUR",
+  "taxes_included": true,
+  "financial_status": "paid",
+  "email": "sofie@example.com",
+  "customer": {
+    "first_name": "Sofie",
+    "last_name": "Demo",
+    "email": "sofie@example.com"
+  },
+  "billing_address": {
+    "country_code": "BE",
+    "city": "Brugge"
+  },
+  "line_items": [
+    {
+      "id": 3,
+      "sku": "KK-GRINDER",
+      "title": "Handmolen",
+      "price": "49.00",
+      "quantity": 1,
+      "total_discount": "0.00",
+      "tax_lines": [
+        {
+          "title": "BTW",
+          "rate": 0.21,
+          "price": "8.50"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "sku": "KK-BEANS-250",
+      "title": "Kustkoffie bonen 250 g",
+      "price": "12.50",
+      "quantity": 1,
+      "total_discount": "0.00",
+      "tax_lines": [
+        {
+          "title": "BTW",
+          "rate": 0.06,
+          "price": "0.71"
+        }
+      ]
+    }
+  ],
+  "shipping_lines": [],
+  "total_price": "61.50",
+  "total_tax": "9.21",
+  "shop_domain": "kustkoffie-demo.myshopify.com"
+}

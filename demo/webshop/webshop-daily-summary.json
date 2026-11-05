@@ -1,0 +1,137 @@
+{
+  "name": "Webshop daily sales summary (demo)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 18
+            }
+          ]
+        }
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000101",
+      "name": "Every day 18:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "shop-summary",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000102",
+      "name": "Summary on demand",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ],
+      "webhookId": "9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT current_date::text AS day,\n  count(*) FILTER (WHERE doc_type = 'invoice')::int AS orders,\n  count(*) FILTER (WHERE doc_type = 'credit_note')::int AS refunds,\n  coalesce(sum(total_amount), 0)::float AS revenue_incl_vat,\n  coalesce(sum(net_amount), 0)::float AS revenue_excl_vat,\n  coalesce(sum(vat_amount), 0)::float AS vat,\n  count(*) FILTER (WHERE needs_review)::int AS needs_review,\n  (SELECT count(*) FROM demo.shop_alerts WHERE created_at::date = current_date)::int AS low_stock_alerts\nFROM demo.shop_invoices\nWHERE created_at::date = current_date;",
+        "options": {}
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000103",
+      "name": "Totals today",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const s = $json;\nconst eur = v => '€' + Number(v).toFixed(2).replace('.', ',');\nreturn { json: { ...s, message: [\n  `📊 Sales ${s.day}`,\n  `Orders: ${s.orders} · Refunds: ${s.refunds}`,\n  `Revenue: ${eur(s.revenue_incl_vat)} incl. VAT (${eur(s.revenue_excl_vat)} excl., VAT ${eur(s.vat)})`,\n  `Needs review: ${s.needs_review} · Low-stock alerts: ${s.low_stock_alerts}`\n].join('\\n') } };"
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000104",
+      "name": "Format message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "[your chat id]",
+        "text": "={{ $json.message }}",
+        "additionalFields": {}
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000105",
+      "name": "Telegram summary",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        720,
+        100
+      ],
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Every day 18:00": {
+      "main": [
+        [
+          {
+            "node": "Totals today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summary on demand": {
+      "main": [
+        [
+          {
+            "node": "Totals today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Totals today": {
+      "main": [
+        [
+          {
+            "node": "Format message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format message": {
+      "main": [
+        [
+          {
+            "node": "Telegram summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

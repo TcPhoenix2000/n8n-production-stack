@@ -1,0 +1,369 @@
+{
+  "name": "Webshop orders to accounting (demo)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Webshop → accounting\n\nEvery Shopify **order** becomes a numbered **invoice**, every **refund** a **credit note** — with net/VAT per rate (6% / 21%), totals checked against the shop, and duplicates ignored when Shopify retries.\n\nStock is updated per line; when a product drops below its threshold a **low-stock alert** is logged (and sent to Telegram when enabled).",
+        "height": 280,
+        "width": 440,
+        "color": 4
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000001",
+      "name": "About",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Inputs\n- **Shop webhook** accepts Shopify-format order and refund JSON (header `X-Shop-Token`). Point Shopify webhooks here when n8n is publicly reachable, or send test orders with `send-test-orders.sh`.\n- **Shopify trigger** (disabled): use instead when connected to a real Shopify store.\n- **Telegram** (disabled): add a bot credential and chat ID to get alerts on your phone.",
+        "height": 260,
+        "width": 440,
+        "color": 7
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000002",
+      "name": "Setup notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "shop-orders",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000003",
+      "name": "Shop webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        300,
+        0
+      ],
+      "webhookId": "7c1e5a2b-4d3f-4e6a-8b9c-0d1e2f3a4b5c"
+    },
+    {
+      "parameters": {
+        "topic": "orders/create",
+        "authentication": "accessToken"
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000004",
+      "name": "Shopify trigger",
+      "type": "n8n-nodes-base.shopifyTrigger",
+      "typeVersion": 1,
+      "position": [
+        300,
+        200
+      ],
+      "disabled": true,
+      "webhookId": "4f00d309-9c58-49be-9e5a-6d553af0a676"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Shopify order or refund webhook -> invoice / credit note record.\n// Runs in an n8n Code node (\"Run once for each item\"). Output keys match demo.shop_invoices.\n// Shopify sends EU prices including VAT (taxes_included = true); net = gross - tax.\n\nconst body = $json.body ?? $json;\nconst r2 = v => Math.round((Number(v) || 0) * 100) / 100;\nconst isRefund = Array.isArray(body.refund_line_items);\n\nconst lineFrom = (li, qty, grossOverride, taxOverride) => {\n  const taxLines = li.tax_lines || [];\n  const rate = taxLines.length ? r2(taxLines.reduce((s, t) => s + Number(t.rate || 0), 0) * 100) : 0;\n  const gross = grossOverride ?? r2(Number(li.price) * qty - Number(li.total_discount || 0));\n  const vat = taxOverride ?? r2(taxLines.reduce((s, t) => s + Number(t.price || 0), 0));\n  return { sku: li.sku || null, title: li.title || li.name, qty, unit_price_incl_vat: r2(li.price), vat_rate: rate, net: r2(gross - vat), vat, gross };\n};\n\nlet lines = [];\nlet reportedTotal = null;\nlet reportedTax = null;\n\nif (isRefund) {\n  // refunds/create payload\n  lines = body.refund_line_items.map(rli => {\n    const gross = r2(Number(rli.subtotal || 0) + Number(rli.total_tax || 0));\n    return lineFrom(rli.line_item || {}, rli.quantity, gross, r2(rli.total_tax));\n  });\n  const refunded = (body.transactions || []).filter(t => (t.kind || 'refund') === 'refund');\n  reportedTotal = refunded.length ? r2(refunded.reduce((s, t) => s + Number(t.amount || 0), 0)) : null;\n} else {\n  // orders/create payload\n  lines = (body.line_items || []).map(li => lineFrom(li, li.quantity));\n  for (const sl of body.shipping_lines || []) {\n    lines.push(lineFrom({ ...sl, sku: null, title: `Verzending: ${sl.title}` }, 1));\n  }\n  reportedTotal = body.total_price != null ? r2(body.total_price) : null;\n  reportedTax = body.total_tax != null ? r2(body.total_tax) : null;\n}\n\nconst net = r2(lines.reduce((s, l) => s + l.net, 0));\nconst vat = r2(lines.reduce((s, l) => s + l.vat, 0));\nconst total = r2(net + vat);\n\n// VAT per rate, as needed on a Belgian invoice\nconst breakdown = {};\nfor (const l of lines) {\n  const k = `${l.vat_rate}%`;\n  breakdown[k] = breakdown[k] || { net: 0, vat: 0 };\n  breakdown[k].net = r2(breakdown[k].net + l.net);\n  breakdown[k].vat = r2(breakdown[k].vat + l.vat);\n}\n\nconst reasons = [];\nif (!lines.length) reasons.push('no lines');\nif (reportedTotal !== null && Math.abs(reportedTotal - total) > 0.02) reasons.push(`line total ${total.toFixed(2)} differs from shop total ${reportedTotal.toFixed(2)}`);\nif (reportedTax !== null && Math.abs(reportedTax - vat) > 0.02) reasons.push(`line VAT ${vat.toFixed(2)} differs from shop VAT ${reportedTax.toFixed(2)}`);\nfor (const l of lines) {\n  if (![0, 6, 12, 21].includes(l.vat_rate)) reasons.push(`unusual Belgian VAT rate ${l.vat_rate}% on \"${l.title}\"`);\n}\n\nconst order = isRefund ? (body.order || {}) : body;\nconst customer = order.customer || {};\nconst sign = isRefund ? -1 : 1;\n\nreturn {\n  json: {\n    doc_type: isRefund ? 'credit_note' : 'invoice',\n    shop: body.shop_domain || order.shop_domain || 'kustkoffie-demo.myshopify.com',\n    shop_order_id: String(isRefund ? body.order_id : body.id),\n    shop_order_name: order.name || null,\n    shop_refund_id: isRefund ? String(body.id) : null,\n    order_date: body.created_at || null,\n    customer_name: [customer.first_name, customer.last_name].filter(Boolean).join(' ') || null,\n    customer_email: customer.email || order.email || null,\n    country: (order.billing_address || {}).country_code || null,\n    currency: (body.currency || order.currency || 'EUR').toUpperCase(),\n    net_amount: sign * net,\n    vat_amount: sign * vat,\n    total_amount: sign * total,\n    vat_breakdown: JSON.stringify(Object.fromEntries(\n      Object.entries(breakdown).map(([rate, v]) => [rate, { net: sign * v.net, vat: sign * v.vat }])\n    )),\n    lines: JSON.stringify(lines),\n    needs_review: reasons.length > 0,\n    review_reasons: reasons.length ? reasons.join('; ') : null\n  }\n};\n"
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000005",
+      "name": "Map to invoice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "name",
+          "value": "demo"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "shop_invoices"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "skipOnConflict": true
+        }
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000006",
+      "name": "Save invoice",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        740,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.doc_number ? { ok: true, doc_number: $json.doc_number, doc_type: $json.doc_type, total: $json.total_amount, needs_review: $json.needs_review, review_reasons: $json.review_reasons } : { ok: true, duplicate: true, note: \"already booked, ignored\" } }}",
+        "options": {}
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000007",
+      "name": "Reply to shop",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One item per product line, for the stock update. Refunds put stock back.\nconst row = $json;\nconst lines = typeof row.lines === 'string' ? JSON.parse(row.lines) : (row.lines || []);\nconst sign = row.doc_type === 'credit_note' ? -1 : 1;\nreturn lines.filter(l => l.sku).map(l => ({ json: { sku: l.sku, qty: sign * l.qty, doc_number: row.doc_number } }));"
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000008",
+      "name": "Split lines",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1180,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE demo.products SET stock = stock - $1::int WHERE sku = $2 RETURNING sku, title, stock, low_stock_threshold;",
+        "options": {
+          "queryReplacement": "={{ $json.qty }},{{ $json.sku }}"
+        }
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000009",
+      "name": "Update stock",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1400,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9b696883-9c02-42ff-a1ee-a67df2c8a1f6",
+              "leftValue": "={{ $json.stock }}",
+              "rightValue": "={{ $json.low_stock_threshold }}",
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000010",
+      "name": "Low stock?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1620,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return {\n  json: {\n    kind: 'low_stock',\n    sku: $json.sku,\n    message: `Low stock: ${$json.title} (${$json.sku}) has ${$json.stock} left (threshold ${$json.low_stock_threshold}) after ${$('Split lines').item.json.doc_number}`\n  }\n};"
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000011",
+      "name": "Build alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1840,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "name",
+          "value": "demo"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "shop_alerts"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000012",
+      "name": "Log alert",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2060,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "[your chat id]",
+        "text": "={{ \"⚠️ \" + $json.message }}",
+        "additionalFields": {}
+      },
+      "id": "b2c0d1e2-0000-4000-9000-000000000013",
+      "name": "Telegram alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2280,
+        0
+      ],
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Shop webhook": {
+      "main": [
+        [
+          {
+            "node": "Map to invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify trigger": {
+      "main": [
+        [
+          {
+            "node": "Map to invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map to invoice": {
+      "main": [
+        [
+          {
+            "node": "Save invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save invoice": {
+      "main": [
+        [
+          {
+            "node": "Reply to shop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply to shop": {
+      "main": [
+        [
+          {
+            "node": "Split lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split lines": {
+      "main": [
+        [
+          {
+            "node": "Update stock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update stock": {
+      "main": [
+        [
+          {
+            "node": "Low stock?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Low stock?": {
+      "main": [
+        [
+          {
+            "node": "Build alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Build alert": {
+      "main": [
+        [
+          {
+            "node": "Log alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log alert": {
+      "main": [
+        [
+          {
+            "node": "Telegram alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "id": 7001001,
+  "order_id": 5001001,
+  "created_at": "2026-11-05T16:40:00+01:00",
+  "currency": "EUR",
+  "note": "Mok kwam gebroken aan",
+  "order": {
+    "name": "#1001",
+    "customer": {
+      "first_name": "Sofie",
+      "last_name": "Demo",
+      "email": "sofie@example.com"
+    },
+    "billing_address": {
+      "country_code": "BE"
+    }
+  },
+  "refund_line_items": [
+    {
+      "quantity": 1,
+      "line_item": {
+        "id": 2,
+        "sku": "KK-MUG",
+        "title": "Kustkoffie mok",
+        "price": "14.95",
+        "quantity": 1,
+        "total_discount": "0.00",
+        "tax_lines": [
+          {
+            "title": "BTW",
+            "rate": 0.21,
+            "price": "2.59"
+          }
+        ]
+      },
+      "subtotal": "12.36",
+      "total_tax": "2.59"
+    }
+  ],
+  "transactions": [
+    {
+      "kind": "refund",
+      "amount": "14.95"
+    }
+  ],
+  "shop_domain": "kustkoffie-demo.myshopify.com"
+}

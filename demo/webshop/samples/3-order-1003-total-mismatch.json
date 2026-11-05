@@ -1,0 +1,52 @@
+{
+  "id": 5001003,
+  "name": "#1003",
+  "order_number": 1003,
+  "created_at": "2026-11-05T10:15:00+01:00",
+  "currency": "EUR",
+  "taxes_included": true,
+  "financial_status": "paid",
+  "email": "sofie@example.com",
+  "customer": {
+    "first_name": "Sofie",
+    "last_name": "Demo",
+    "email": "sofie@example.com"
+  },
+  "billing_address": {
+    "country_code": "BE",
+    "city": "Brugge"
+  },
+  "line_items": [
+    {
+      "id": 5,
+      "sku": "KK-MUG",
+      "title": "Kustkoffie mok",
+      "price": "14.95",
+      "quantity": 3,
+      "total_discount": "0.00",
+      "tax_lines": [
+        {
+          "title": "BTW",
+          "rate": 0.21,
+          "price": "7.78"
+        }
+      ]
+    }
+  ],
+  "shipping_lines": [
+    {
+      "title": "bpost",
+      "price": "4.95",
+      "tax_lines": [
+        {
+          "title": "BTW",
+          "rate": 0.21,
+          "price": "0.86"
+        }
+      ]
+    }
+  ],
+  "total_price": "47.80",
+  "total_tax": "8.64",
+  "shop_domain": "kustkoffie-demo.myshopify.com"
+}
